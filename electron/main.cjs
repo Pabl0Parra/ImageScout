@@ -231,7 +231,10 @@ function setupHandlers() {
     if (request.copy) {
       try { await writeClipboard(await vault.bytes(record.id)); }
       catch { warning = 'Saved to the Vault, but the clipboard is busy. Try Copy again from the Vault.'; }
-    } else await vault.export(record.id, downloadsPath(), query);
+    } else {
+      try { await vault.export(record.id, downloadsPath(), query); }
+      catch (error) { warning = `Added to Vault, but export to Downloads failed: ${error.message || 'Try again from the Vault.'}`; }
+    }
     return { record: legacyRecord(record), warning };
   });
   handle('vault:info', () => { const summary = migrationSummary; migrationSummary = null; return { path: vault.root, migration: summary }; });
@@ -254,6 +257,10 @@ function setupHandlers() {
   handle('vault:copy', async id => { await writeClipboard(await vault.bytes(id)); return vault.get(id); });
   handle('vault:export', async id => ({ record: await vault.get(id), file: await vault.export(id, downloadsPath()) }));
   handle('vault:reveal', async id => { await vault.bytes(id); shell.showItemInFolder(path.join(vault.imagesDirectory, `${id}.png`)); });
+  handle('vault:open-folder', async () => {
+    const error = await shell.openPath(vault.root);
+    if (error) throw new Error('The Vault folder could not be opened.');
+  });
   handle('vault:delete', id => vault.delete(id));
   handle('window:hide', () => window.hide());
 }

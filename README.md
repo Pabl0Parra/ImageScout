@@ -1,6 +1,6 @@
 # Image Scout
 
-A compact Windows image launcher. Search Google Images in independent tabs, copy actual images, save numbered PNGs to Downloads, and remove backgrounds locally.
+A compact Windows image launcher. Search Google Images in independent tabs, collect images in a durable local Vault, export numbered PNGs to Downloads, and remove backgrounds locally.
 
 ## Open the app
 
@@ -16,9 +16,11 @@ Open Settings, paste your SerpApi key, and save. The desktop backend stores it e
 - **Ctrl+L:** focus search.
 - **Escape:** close a dialog or hide the app.
 
-Submit searches with Enter. Copy also saves to Downloads. Names use the submitted query, for example `Monkey (1).png`, and never overwrite existing files. The Saved tab persists across restarts and can copy or reveal local files. Downloads are normalized to PNG for reliable clipboard support. Animated formats become a still image; sources that block downloads or unsupported formats show an error.
+Submit searches with Enter. Copy adds an image to Vault and to the clipboard; Save adds it to Vault and exports it to Downloads. Names use the submitted query, for example `Monkey (1).png`, and never overwrite existing files.
 
-Background removal runs on this device using IMG.LY's small model. The first use downloads the model/runtime from IMG.LY and is slower; subsequent uses reuse cached assets. No additional API key is needed. Preview the transparent result, then copy or save it.
+Use **Upload** or drag files onto the window to add local images to the Vault. Vault assets are copied into app-managed local storage, deduplicated by image content, available offline, and searchable by filename, title, and source query. From Vault you can copy, export, reveal, remove backgrounds, or delete an image. Settings shows the Vault folder and can open it. Uploads accept up to 50 images at once, 20 MB per file, and 200 MB per batch; individual failures do not prevent valid files from importing. Downloads and Vault assets are normalized to PNG for reliable clipboard support. Animated formats become a still image; sources that block downloads or unsupported formats show an error.
+
+Background removal runs on this device using IMG.LY's small model. The first use downloads the model/runtime from IMG.LY and is slower; subsequent uses reuse cached assets. No additional API key is needed. Preview the transparent result, then copy or save it; either action stores the cutout in Vault.
 
 ## Develop and test
 

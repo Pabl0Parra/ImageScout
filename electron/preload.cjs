@@ -25,8 +25,9 @@ contextBridge.exposeInMainWorld('scout', {
   reveal: call('vault:reveal'), hide: call('window:hide'),
   vault: {
     info: call('vault:info'), import: call('vault:import'), importDropped,
+    beginDrop: call('vault:drop-begin'), importDropFile: call('vault:drop-file'),
     list: call('vault:list'), copy: call('vault:copy'), export: call('vault:export'),
-    reveal: call('vault:reveal'), delete: call('vault:delete'), bytes: call('vault:bytes')
+    reveal: call('vault:reveal'), openFolder: call('vault:open-folder'), delete: call('vault:delete'), bytes: call('vault:bytes')
   },
   onFocus: (callback) => { const listener = () => callback(); ipcRenderer.on('window:focus-search', listener); return () => ipcRenderer.removeListener('window:focus-search', listener); }
 });

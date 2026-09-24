@@ -1,9 +1,9 @@
 # Verification — 24 September 2026
 
-- `npm test`: 9 passed (including concurrent exclusive saves, library writes and restart, safe filenames, API normalization, credentials redaction, size/MIME bounds, private address rejection, DNS pinning and duplicate image results).
-- `npm run test:ui`: 3 passed in Microsoft Edge (independent tabs, submitted query filename preservation, stale response handling, Saved reveal, dialog shortcut handling).
+- `npm test`: 22 passed (including managed Vault normalization, content deduplication and aliases, atomic index writes, traversal-safe IDs, recoverable deletion, upload limits, and idempotent migration alongside existing downloader checks).
+- `npm run test:ui`: 13 passed in Microsoft Edge (picker upload, partial drag-and-drop errors, renderer preflight and sequential reads, Vault actions/filtering/deletion, cutout persistence, export failure recovery, Settings Vault folder action, and concurrent searches).
 - `npm run build`: production build passed.
-- `node scripts/desktop-smoke.cjs`: Electron launch, encrypted key on disk, shortcut registration, minimized reopen, two concurrent PNG downloads, actual Windows image clipboard, invalid image rejection, history across restart, Saved copy without duplicate downloads, and close-to-tray passed.
+- `node scripts/desktop-smoke.cjs`: Electron launch, encrypted key on disk, migration retry, multi-file picker import, sequential dropped partial imports, Vault deduplication, protected web ingestion, actual Windows image clipboard, numbered exports, safe reveal/delete, persistence, and close-to-tray passed.
 - `SCOUT_TEST_MODEL=1` desktop smoke: downloaded real model/runtime and completed local inference, producing PNG bytes through the built worker.
 - `SCOUT_TEST_EXECUTABLE=.../release/win-unpacked/Image Scout.exe`: same native smoke passed for packaged executable.
 - `npm run dist`: Windows unpacked and portable executable built successfully.
