@@ -45,9 +45,10 @@
 - Modify: `electron/preload.cjs`
 - Modify: `scripts/desktop-smoke.cjs`
 
-- [ ] Extend desktop smoke tests first for multi-file import, partial invalid batches, internet ingestion, Vault copy/export/reveal/delete, and restart persistence; confirm they fail against the old bridge.
-- [ ] Instantiate and migrate `VaultStore`; add native picker and bounded dropped-file ingestion.
-- [ ] Replace library IPC with narrow `vault:*` ID operations and route web Copy/Save/cutout actions through Vault ingestion.
+- [ ] Extend desktop smoke tests first for multi-file import, partial invalid batches, internet ingestion, Vault copy/export/reveal/delete, Vault byte loading, and restart persistence; confirm they fail against the old bridge.
+- [ ] Instantiate and migrate `VaultStore`; expose a non-fatal migration summary for the renderer to show once, including skipped missing/unreadable legacy records.
+- [ ] Add native picker and dropped-file ingestion with privileged enforcement of 50 files, 20 MB per file, 200 MB per batch, sequential processing, and partial-success results for both routes.
+- [ ] Replace library IPC with narrow `vault:*` ID operations, including Vault PNG bytes by ID for background removal, and route web Copy/Save/cutout actions through Vault ingestion.
 - [ ] Ensure Copy imports then copies, Save imports then exports, Vault Copy does not export, and Vault export uses numbered Downloads names.
 - [ ] Run syntax, service, and desktop smoke checks; expect all to pass.
 - [ ] Commit desktop integration.
@@ -61,9 +62,10 @@
 - Modify: `src/styles.css`
 - Modify: `tests/ui.spec.js`
 
-- [ ] Update the fake bridge and write failing Playwright tests for picker upload, dropped files, partial errors, immediate Vault display, internet Copy/Save ingestion, Vault filtering, copy/export/reveal, delete confirmation, and persisted cutouts.
+- [ ] Update the fake bridge and write failing Playwright tests for picker upload, dropped files, privileged limit/partial errors, migration notices, immediate Vault display, internet Copy/Save ingestion, Vault filtering, copy/export/reveal, delete confirmation, and Vault-card background removal.
 - [ ] Run `npm run test:ui`; confirm failures are due to the missing UI.
-- [ ] Rename Saved to Vault, add Upload and drag target, render imported records, add Vault actions, confirmation, and aggregated partial-error feedback.
+- [ ] Rename Saved to Vault, add Upload and drag target, render imported records, add Vault actions (including background removal by Vault ID), confirmation, migration notice, and aggregated partial-error feedback.
+- [ ] Verify cutout preview/cancel creates no Vault record, while cutout Copy or Export ingests the transparent PNG with origin `cutout` before the requested action.
 - [ ] Search title, original filename, aliases, and source queries without exposing managed paths.
 - [ ] Run UI and full tests; expect all to pass.
 - [ ] Commit the interface.
