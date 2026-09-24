@@ -1,13 +1,16 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, nativeImage, clipboard, ClipboardItem, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, nativeImage, clipboard, ClipboardItem, safeStorage, shell, dialog } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
-const { searchImages, downloadImage, saveUniqueImage, LibraryStore } = require('./services.cjs');
+const { searchImages, downloadImage } = require('./services.cjs');
+const { VaultStore, MAX_FILE_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES } = require('./vault.cjs');
 
 if (process.env.SCOUT_TEST_PROFILE) app.setPath('userData', process.env.SCOUT_TEST_PROFILE);
-let window, tray, library, config = {}, shortcut = '', shortcutWarning = '', quitting = false;
+let window, tray, vault, migrationSummary = null, config = {}, shortcut = '', shortcutWarning = '', quitting = false;
 const searches = new Map();
+const dropSessions = new Map();
+const DROP_SESSION_MS = 60 * 1000;
 const entry = path.join(__dirname, '..', 'dist', 'index.html');
 const configPath = () => path.join(app.getPath('userData'), 'settings.json');
 const downloadsPath = () => process.env.SCOUT_TEST_DOWNLOADS || app.getPath('downloads');
@@ -33,7 +36,7 @@ function registerShortcut(next) {
   shortcut = next;
 }
 function settings() {
-  return { hasKey: !!(config.key || process.env.SERPAPI_API_KEY), shortcut, shortcutWarning, downloads: downloadsPath() };
+  return { hasKey: !!(config.key || process.env.SERPAPI_API_KEY), shortcut, shortcutWarning, downloads: downloadsPath(), vaultPath: vault?.root };
 }
 function assertString(value, name, max = 500) {
   if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`Invalid ${name}.`);
@@ -54,15 +57,137 @@ function decodeImage(buffer) {
 }
 async function imageFromRequest(request) {
   if (request.savedId) {
-    const record = (await library.list()).find((item) => item.id === request.savedId);
-    if (!record) throw new Error('Saved image not found.');
-    return decodeImage(await fs.readFile(record.path));
+    return decodeImage(await vault.bytes(request.savedId));
   }
   if (request.png) {
     if (!(request.png instanceof Uint8Array) || request.png.length > 20 * 1024 * 1024) throw new Error('Invalid image data.');
     return decodeImage(Buffer.from(request.png));
   }
   return decodeImage(await downloadImage(assertString(request.url, 'image URL', 8192)));
+}
+function normalizePng(buffer) {
+  const image = decodeImage(buffer);
+  const { width, height } = image.getSize();
+  const previewWidth = Math.min(300, width);
+  return { png: image.toPNG(), width, height, preview: image.resize({ width: previewWidth }).toDataURL() };
+}
+async function writeClipboard(bytes) {
+  const png = Buffer.from(bytes);
+  await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })]);
+}
+function legacyRecord(record) {
+  const query = record.sources?.find((source) => source.query)?.query || record.title;
+  return { ...record, query, path: true };
+}
+async function importBatch(files, readBytes) {
+  if (!Array.isArray(files)) throw new Error('Import files must be a list.');
+  if (files.length > MAX_BATCH_FILES) throw new Error(`Import at most ${MAX_BATCH_FILES} files at once.`);
+  const records = [], errors = [];
+  let total = 0;
+  for (const file of files) {
+    const name = path.basename(String(file?.name || 'Image')).slice(0, 160) || 'Image';
+    try {
+      const declaredSize = Number(file?.size);
+      if (Number.isFinite(declaredSize)) {
+        if (declaredSize > MAX_FILE_BYTES) throw new Error('Image exceeds the 20 MB file limit.');
+        if (total + declaredSize > MAX_BATCH_BYTES) throw new Error('The import exceeds the 200 MB batch limit.');
+      }
+      const bytes = Buffer.from(await readBytes(file));
+      if (bytes.length > MAX_FILE_BYTES) throw new Error('Image exceeds the 20 MB file limit.');
+      if (total + bytes.length > MAX_BATCH_BYTES) throw new Error('The import exceeds the 200 MB batch limit.');
+      total += bytes.length;
+      records.push(await vault.ingest(bytes, { title: path.parse(name).name, originalFilename: name, origin: 'upload' }));
+    } catch (error) { errors.push({ name, reason: error.message || 'File could not be imported.' }); }
+  }
+  return { records, errors };
+}
+async function selectedPickerFiles() {
+  if (!(process.env.SCOUT_TEST_PROFILE && process.env.SCOUT_TEST_PICKER_FILES)) {
+    const result = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'], filters: [
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'ico', 'tif', 'tiff', 'avif'] }
+    ] });
+    return result.canceled ? [] : result.filePaths;
+  }
+  let files;
+  try { files = JSON.parse(process.env.SCOUT_TEST_PICKER_FILES); }
+  catch { throw new Error('Invalid test picker files.'); }
+  if (!Array.isArray(files) || files.length > MAX_BATCH_FILES || files.some(file => typeof file !== 'string')) {
+    throw new Error('Invalid test picker files.');
+  }
+  return files.map(file => path.resolve(file));
+}
+function pruneDropSessions() {
+  const now = Date.now();
+  for (const [token, session] of dropSessions) if (session.expiresAt <= now) {
+    clearTimeout(session.timer); dropSessions.delete(token);
+  }
+}
+function beginDrop(manifest) {
+  pruneDropSessions();
+  if (!Array.isArray(manifest)) throw new Error('Import files must be a list.');
+  if (manifest.length > MAX_BATCH_FILES) throw new Error(`Import at most ${MAX_BATCH_FILES} files at once.`);
+  let total = 0;
+  const files = [], accepted = [], errors = [];
+  manifest.forEach((file, sourceIndex) => {
+    const name = path.basename(String(file?.name || 'Image')).slice(0, 160) || 'Image';
+    const size = Number(file?.size);
+    let reason;
+    if (!Number.isSafeInteger(size) || size < 0) reason = `${name} has an invalid size.`;
+    else if (size > MAX_FILE_BYTES) reason = `20 MB file limit exceeded by ${name}.`;
+    else if (total + size > MAX_BATCH_BYTES) reason = 'The import exceeds the 200 MB batch limit.';
+    if (reason) { errors.push({ name, reason }); return; }
+    total += size;
+    files.push({ name, size });
+    accepted.push({ sourceIndex, name });
+  });
+  if (!files.length) return { token: null, accepted, errors };
+  const token = randomUUID();
+  const session = { files, next: 0, actualBytes: 0, expiresAt: Date.now() + DROP_SESSION_MS };
+  session.timer = setTimeout(() => dropSessions.delete(token), DROP_SESSION_MS);
+  session.timer.unref?.();
+  dropSessions.set(token, session);
+  return { token, accepted, errors };
+}
+async function ingestDropFile(token, index, name, bytes) {
+  pruneDropSessions();
+  const session = dropSessions.get(token);
+  if (!session) throw new Error('Drop import session expired.');
+  const expected = session.files[session.next];
+  if (index !== session.next || !expected || name !== expected.name) {
+    clearTimeout(session.timer); dropSessions.delete(token); throw new Error('Drop import order is invalid.');
+  }
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== expected.size) {
+    clearTimeout(session.timer); dropSessions.delete(token); throw new Error('Dropped image size does not match its manifest.');
+  }
+  if (session.actualBytes + bytes.byteLength > MAX_BATCH_BYTES) {
+    clearTimeout(session.timer); dropSessions.delete(token); throw new Error('The import exceeds the 200 MB batch limit.');
+  }
+  try {
+    session.actualBytes += bytes.byteLength;
+    const record = await vault.ingest(Buffer.from(bytes), {
+      title: path.parse(expected.name).name, originalFilename: expected.name, origin: 'upload'
+    });
+    return { record };
+  } catch (error) {
+    return { error: { name: expected?.name || 'Image', reason: error.message || 'File could not be imported.' } };
+  } finally {
+    session.next += 1;
+    clearTimeout(session.timer);
+    if (session.next >= session.files.length) dropSessions.delete(token);
+    else {
+      session.expiresAt = Date.now() + DROP_SESSION_MS;
+      session.timer = setTimeout(() => dropSessions.delete(token), DROP_SESSION_MS);
+      session.timer.unref?.();
+    }
+  }
+}
+async function initializeVault() {
+  vault = await new VaultStore(app.getPath('userData'), { normalizePng }).init();
+  const marker = path.join(vault.root, '.legacy-migration-v1.json');
+  try { await fs.access(marker); return; } catch { /* First migration attempt. */ }
+  try { migrationSummary = await vault.migrate(path.join(app.getPath('userData'), 'library.json')); }
+  catch (error) { migrationSummary = { imported: 0, duplicates: 0, skipped: [], error: error.message }; return; }
+  await fs.writeFile(marker, JSON.stringify(migrationSummary), 'utf8').catch(() => {});
 }
 function setupHandlers() {
   handle('settings:get', settings);
@@ -96,29 +221,40 @@ function setupHandlers() {
   handle('images:save', async (request) => {
     if (!request || typeof request !== 'object') throw new Error('Invalid image request.');
     const query = assertString(request.query, 'search title', 200);
-    const image = await imageFromRequest(request);
-    let record;
-    if (request.savedId) record = (await library.list()).find((item) => item.id === request.savedId);
-    else {
-      const file = await saveUniqueImage(downloadsPath(), query, image.toPNG());
-      record = { id: randomUUID(), query, title: String(request.title || query).slice(0, 500), path: file,
-        preview: image.resize({ width: 300 }).toDataURL(), createdAt: new Date().toISOString(), cutout: !!request.png };
-      try { await library.add(record); } catch { throw new Error('Image saved to Downloads, but Saved history could not be updated.'); }
+    let record = request.savedId ? await vault.get(request.savedId) : null;
+    if (!record) {
+      const image = await imageFromRequest(request);
+      record = await vault.ingest(image.toPNG(), { title: String(request.title || query).slice(0, 160), query,
+        sourceUrl: request.url, origin: request.png ? 'cutout' : 'search' });
     }
     let warning;
     if (request.copy) {
-      try { await clipboard.write([new ClipboardItem({ 'image/png': new Blob([image.toPNG()], { type: 'image/png' }) })]); }
-      catch { warning = 'Saved to Downloads, but the clipboard is busy. Try Copy again from Saved.'; }
+      try { await writeClipboard(await vault.bytes(record.id)); }
+      catch { warning = 'Saved to the Vault, but the clipboard is busy. Try Copy again from the Vault.'; }
+    } else await vault.export(record.id, downloadsPath(), query);
+    return { record: legacyRecord(record), warning };
+  });
+  handle('vault:info', () => { const summary = migrationSummary; migrationSummary = null; return { path: vault.root, migration: summary }; });
+  handle('vault:import', async () => {
+    const files = [];
+    for (const file of await selectedPickerFiles()) {
+      try {
+        const stat = await fs.stat(file);
+        if (!stat.isFile()) throw new Error('Not a file.');
+        files.push({ name: path.basename(file), file, size: stat.size });
+      }
+      catch { files.push({ name: path.basename(file), file }); }
     }
-    return { record, warning };
+    return importBatch(files, item => fs.readFile(item.file));
   });
-  handle('library:list', () => library.list());
-  handle('library:reveal', async (id) => {
-    const record = (await library.list()).find((item) => item.id === id);
-    if (!record) throw new Error('Saved image not found.');
-    await fs.access(record.path).catch(() => { throw new Error('This file was moved or deleted from Downloads.'); });
-    shell.showItemInFolder(record.path);
-  });
+  handle('vault:drop-begin', beginDrop);
+  handle('vault:drop-file', ingestDropFile);
+  handle('vault:list', () => vault.list());
+  handle('vault:bytes', async id => new Uint8Array(await vault.bytes(id)));
+  handle('vault:copy', async id => { await writeClipboard(await vault.bytes(id)); return vault.get(id); });
+  handle('vault:export', async id => ({ record: await vault.get(id), file: await vault.export(id, downloadsPath()) }));
+  handle('vault:reveal', async id => { await vault.bytes(id); shell.showItemInFolder(path.join(vault.imagesDirectory, `${id}.png`)); });
+  handle('vault:delete', id => vault.delete(id));
   handle('window:hide', () => window.hide());
 }
 function createWindow() {
@@ -148,12 +284,17 @@ else {
   app.on('second-instance', show);
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null); await readConfig();
-    library = new LibraryStore(path.join(app.getPath('userData'), 'library.json'));
+    await initializeVault();
     setupHandlers(); createWindow(); createTray();
     try { registerShortcut(config.shortcut || 'Alt+Space'); }
     catch { try { registerShortcut('Control+Alt+Space'); shortcutWarning = 'Alt+Space is in use. Image Scout is using Ctrl+Alt+Space.'; } catch { shortcutWarning = 'Global shortcut unavailable. Choose another in Settings; the tray icon still opens Image Scout.'; } }
   }).catch(() => { require('electron').dialog.showErrorBox('Image Scout', 'The app could not start. Please check that the app folder is writable and try again.'); app.quit(); });
   app.on('before-quit', () => { quitting = true; });
-  app.on('will-quit', () => { globalShortcut.unregisterAll(); for (const request of searches.values()) request.abort(); });
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+    for (const session of dropSessions.values()) clearTimeout(session.timer);
+    dropSessions.clear();
+    for (const request of searches.values()) request.abort();
+  });
   app.on('window-all-closed', () => {});
 }
