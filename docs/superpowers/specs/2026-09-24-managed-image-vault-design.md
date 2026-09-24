@@ -12,7 +12,7 @@ Uploading adds each accepted image to the Vault immediately. The original filena
 
 Choosing **Copy** on an internet result imports the image into Vault and copies it to the clipboard. Choosing **Save** on an internet result imports it into Vault and exports a numbered PNG to Downloads. An image already present in Vault is reused instead of creating a duplicate. Copying a Vault image only changes the clipboard; saving a Vault image exports it to Downloads.
 
-Vault cards support preview, copy, background removal, export to Downloads, reveal the managed file, and delete. Deleting requires a confirmation inside the app and removes both the managed file and its metadata. The Vault can be searched by title, original filename, and source query. Settings displays the Vault path and provides an **Open Vault Folder** action.
+Vault cards support preview, copy, background removal, export to Downloads, reveal the managed file, and delete. Previewing or cancelling a background-removal result does not store it. Copying or exporting a cutout first ingests its transparent PNG into the Vault with origin `cutout`, then performs the requested action. Deleting requires a confirmation inside the app and removes both the managed file and its metadata. The Vault can be searched by title, original filename, aliases, and source query. Settings displays the Vault path and provides an **Open Vault Folder** action.
 
 ## Storage and naming
 
@@ -26,7 +26,7 @@ Image Scout owns a directory beneath Electron's per-user application-data direct
 
 Every accepted image is decoded with Electron and normalized to PNG before it enters the Vault. The PNG's SHA-256 digest becomes its identity and managed filename. This makes deduplication deterministic across local imports and internet downloads. GIF and animated formats become a still image, matching current clipboard behavior.
 
-Metadata records contain the digest, title, optional source query and URL, managed path, creation time, dimensions, origin (`upload`, `search`, or `cutout`), and a bounded preview data URL. Metadata writes remain serialized and atomic. The renderer never supplies or receives arbitrary filesystem paths for privileged operations; actions use Vault record IDs.
+One Vault asset record exists per digest. It contains the digest, primary title, sanitized display-only original filename when applicable, searchable title/filename aliases, source occurrences (query and optional URL), managed path, creation/update times, dimensions, origins (`upload`, `search`, and/or `cutout`), and a bounded preview data URL. The original absolute path is never stored. When identical content arrives again, Image Scout updates the existing asset's aliases, source occurrences, origins, and update time rather than creating another card or discarding the new context. Thus the same image stays deduplicated while remaining discoverable under every filename and search query by which it entered the Vault. Metadata writes remain serialized and atomic. The renderer never supplies or receives arbitrary filesystem paths for privileged operations; actions use Vault record IDs.
 
 The existing Saved history is migrated on startup. For each readable legacy record, Image Scout imports the referenced file into the managed Vault and preserves useful metadata. Missing legacy files are skipped and reported non-fatally. Migration is idempotent, and the old metadata remains untouched until the new Vault index has been written successfully.
 
@@ -35,7 +35,7 @@ The existing Saved history is migrated on startup. For each readable legacy reco
 The Electron main process owns file selection, file reading, decoding, hashing, Vault writes, exports, reveals, and deletes. The sandboxed renderer receives a narrow bridge:
 
 - `vault.import()` opens the native multi-file picker and returns imported records plus per-file errors.
-- `vault.importDropped(files)` accepts browser `File` byte arrays and display names, with strict per-file and batch limits.
+- `vault.importDropped(files)` accepts browser `File` byte arrays and sanitized display names, with strict per-file and batch limits.
 - `vault.list()`, `vault.copy(id)`, `vault.export(id)`, `vault.reveal(id)`, and `vault.delete(id)` operate by record ID.
 - Internet actions first download through the existing protected downloader, then call the same Vault ingestion service.
 - Background removal accepts bytes loaded by Vault ID or an internet result, and its output can be added to Vault before copy/export.
