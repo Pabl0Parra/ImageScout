@@ -2,6 +2,23 @@
 
 A compact Windows image launcher. Search Google Images in independent tabs, collect images in a durable local Vault, export numbered PNGs to Downloads, and remove backgrounds locally.
 
+## Screenshots
+
+Light and dark themes with the larger typography and top-left branding. These captures predate the latest logo update.
+
+| Dark theme | Light theme |
+| --- | --- |
+| ![ImageScout home screen in dark mode](docs/previews/dark-home.png) | ![ImageScout home screen in light mode](docs/previews/light-home.png) |
+
+<details>
+<summary>Settings in both themes</summary>
+
+| Dark settings | Light settings |
+| --- | --- |
+| ![ImageScout settings in dark mode](docs/previews/dark-settings.png) | ![ImageScout settings in light mode](docs/previews/light-settings.png) |
+
+</details>
+
 ## Open the app
 
 Run `release/win-unpacked/ImageScout.exe` after packaging, or the portable `release/ImageScout-0.1.0.exe`. Keep the entire `win-unpacked` folder together when using the unpacked app. X, Alt+F4, and Tray → Quit fully exit. The minus button and Escape hide to the tray (Escape closes an open dialog first).
