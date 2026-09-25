@@ -1,49 +1,1084 @@
-import React,{useEffect,useRef,useState} from 'react';
-import {Search,Plus,X,Settings,Bookmark,ArrowUpRight,Copy,Download,Scissors,Image,FolderOpen,Command,LoaderCircle,Check,Minus,Upload,Trash2} from 'lucide-react';
-import {removeImageBackground} from './background';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Search,
+  Plus,
+  X,
+  Settings,
+  Bookmark,
+  ArrowUpRight,
+  Copy,
+  Download,
+  Scissors,
+  Image,
+  FolderOpen,
+  Sun,
+  Moon,
+  LoaderCircle,
+  Check,
+  Minus,
+  Upload,
+  Trash2,
+} from 'lucide-react';
+import { removeImageBackground } from './background';
+import Logo from './Logo';
+import { initialTheme, applyTheme, savedTheme } from './theme';
 
-const bridge=window.scout;
-const fresh=()=>({id:crypto.randomUUID(),draft:'',query:'',results:[],loading:false,error:'',generation:0});
-const errorText=e=>String(e?.message||e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/,'').replace(/^Error:\s*/,'');
-const upsert=(records,incoming)=>{const next=[...records];for(const record of incoming||[]){const index=next.findIndex(item=>item.id===record.id);if(index<0)next.unshift(record);else next[index]=record;}return next;};
-const recordSearchText=record=>[record.title,record.originalFilename,...(record.aliases||[]),...(record.sources||[]).flatMap(source=>[source.query,source.url])].filter(Boolean).join(' ').toLowerCase();
-const importMessage=result=>{const errors=result?.errors||[];if(errors.length)return `${result?.records?.length||0} imported · ${errors.length} failed: ${errors.map(item=>`${item.name||'Image'}: ${item.reason||item.error||item.message||'Import failed'}`).join('; ')}`;return `${result?.records?.length||0} image${result?.records?.length===1?'':'s'} added to Vault`;};
-const migrationMessage=migration=>{if(!migration)return '';const skipped=migration.skipped?.length||0;if(migration.error)return `Vault migration needs attention: ${migration.error}`;if(!migration.imported&&!migration.duplicates&&!skipped)return '';return `Vault migration: ${migration.imported||0} imported${migration.duplicates?`, ${migration.duplicates} duplicates`:''}${skipped?`, ${skipped} skipped`:''}.`;};
-const MAX_DROP_FILES=50,MAX_DROP_FILE_BYTES=20*1024*1024,MAX_DROP_BATCH_BYTES=200*1024*1024;
+const bridge = window.scout;
+const fresh = () => ({
+  id: crypto.randomUUID(),
+  draft: '',
+  query: '',
+  results: [],
+  loading: false,
+  error: '',
+  generation: 0,
+});
+const errorText = (e) =>
+  String(e?.message || e)
+    .replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '')
+    .replace(/^Error:\s*/, '');
+const upsert = (records, incoming) => {
+  const next = [...records];
+  for (const record of incoming || []) {
+    const index = next.findIndex((item) => item.id === record.id);
+    if (index < 0) next.unshift(record);
+    else next[index] = record;
+  }
+  return next;
+};
+const recordSearchText = (record) =>
+  [
+    record.title,
+    record.originalFilename,
+    ...(record.aliases || []),
+    ...(record.sources || []).flatMap((source) => [source.query, source.url]),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+const importMessage = (result) => {
+  const errors = result?.errors || [];
+  if (errors.length)
+    return `${result?.records?.length || 0} imported · ${errors.length} failed: ${errors.map((item) => `${item.name || 'Image'}: ${item.reason || item.error || item.message || 'Import failed'}`).join('; ')}`;
+  return `${result?.records?.length || 0} image${result?.records?.length === 1 ? '' : 's'} added to Vault`;
+};
+const migrationMessage = (migration) => {
+  if (!migration) return '';
+  const skipped = migration.skipped?.length || 0;
+  if (migration.error)
+    return `Vault migration needs attention: ${migration.error}`;
+  if (!migration.imported && !migration.duplicates && !skipped) return '';
+  return `Vault migration: ${migration.imported || 0} imported${migration.duplicates ? `, ${migration.duplicates} duplicates` : ''}${skipped ? `, ${skipped} skipped` : ''}.`;
+};
+const MAX_DROP_FILES = 50,
+  MAX_DROP_FILE_BYTES = 20 * 1024 * 1024,
+  MAX_DROP_BATCH_BYTES = 200 * 1024 * 1024;
 
-export default function App(){
- const [tabs,setTabs]=useState(()=>[fresh()]),[active,setActive]=useState(null),[settings,setSettings]=useState(null),[vault,setVault]=useState([]),[vaultInfo,setVaultInfo]=useState(null),[filter,setFilter]=useState(''),[showSettings,setShowSettings]=useState(false),[notice,setNotice]=useState(''),[preview,setPreview]=useState(null),[busy,setBusy]=useState({}),[dragging,setDragging]=useState(false),[deleteItem,setDeleteItem]=useState(null);
- const input=useRef(null),noticeTimer=useRef(),tabsRef=useRef(tabs),dragDepth=useRef(0);tabsRef.current=tabs;
- const selected=active||tabs[0]?.id,current=tabs.find(tab=>tab.id===selected),isVault=selected==='vault';
- const notify=message=>{setNotice(message);clearTimeout(noticeTimer.current);noticeTimer.current=setTimeout(()=>setNotice(''),6500);};
+export default function App() {
+  const [theme, setTheme] = useState(initialTheme);
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+  useEffect(() => {
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    const change = () => {
+      if (!savedTheme()) setTheme(media.matches ? 'dark' : 'light');
+    };
+    media.addEventListener('change', change);
+    return () => media.removeEventListener('change', change);
+  }, []);
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    applyTheme(next, true);
+    setTheme(next);
+  };
+  const [tabs, setTabs] = useState(() => [fresh()]),
+    [active, setActive] = useState(null),
+    [settings, setSettings] = useState(null),
+    [vault, setVault] = useState([]),
+    [vaultInfo, setVaultInfo] = useState(null),
+    [filter, setFilter] = useState(''),
+    [showSettings, setShowSettings] = useState(false),
+    [notice, setNotice] = useState(''),
+    [preview, setPreview] = useState(null),
+    [busy, setBusy] = useState({}),
+    [dragging, setDragging] = useState(false),
+    [deleteItem, setDeleteItem] = useState(null);
+  const input = useRef(null),
+    noticeTimer = useRef(),
+    tabsRef = useRef(tabs),
+    dragDepth = useRef(0);
+  tabsRef.current = tabs;
+  const selected = active || tabs[0]?.id,
+    current = tabs.find((tab) => tab.id === selected),
+    isVault = selected === 'vault';
+  const notify = (message) => {
+    setNotice(message);
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(''), 6500);
+  };
 
- useEffect(()=>{if(!bridge){notify('Open Image Scout from the desktop app to connect to image search.');return;}Promise.all([bridge.settings(),bridge.vault.info(),bridge.vault.list()]).then(([nextSettings,info,records])=>{setSettings(nextSettings);setVaultInfo(info);setVault(records);const message=migrationMessage(info?.migration);if(message)notify(message);}).catch(error=>notify(errorText(error)));return bridge.onFocus(()=>input.current?.focus());},[]);
- const newTab=()=>{const tab=fresh();setTabs(all=>[...all,tab]);setActive(tab.id);setTimeout(()=>input.current?.focus(),0);};
- const closeTab=id=>{const remaining=tabsRef.current.filter(tab=>tab.id!==id);if(!remaining.length)remaining.push(fresh());setTabs(remaining);if(selected===id)setActive(remaining.at(-1).id);};
- useEffect(()=>{const handler=event=>{if(event.key==='Escape'){if(deleteItem)setDeleteItem(null);else if(preview)setPreview(null);else if(showSettings)setShowSettings(false);else bridge?.hide();return;}if(preview||showSettings||deleteItem){if(event.key==='Tab'){const nodes=[...document.querySelectorAll('[role="dialog"] button:not(:disabled),[role="dialog"] input')];const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}if((event.ctrlKey||event.metaKey)&&['t','w','l'].includes(event.key.toLowerCase()))event.preventDefault();return;}if((event.ctrlKey||event.metaKey)&&!event.altKey){if(event.key.toLowerCase()==='t'){event.preventDefault();newTab();}if(event.key.toLowerCase()==='w'){event.preventDefault();if(!isVault)closeTab(selected);}if(event.key.toLowerCase()==='l'){event.preventDefault();input.current?.focus();input.current?.select();}}};window.addEventListener('keydown',handler);return()=>window.removeEventListener('keydown',handler);});
- useEffect(()=>{const enter=event=>{event.preventDefault();dragDepth.current+=1;setDragging(true);};const over=event=>{event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';};const leave=event=>{event.preventDefault();dragDepth.current=Math.max(0,dragDepth.current-1);if(!dragDepth.current)setDragging(false);};const drop=async event=>{event.preventDefault();dragDepth.current=0;setDragging(false);const files=[...(event.dataTransfer?.files||[])];if(!files.length)return;setActive('vault');if(files.length>MAX_DROP_FILES){notify(`Import at most ${MAX_DROP_FILES} files at once.`);return;}try{const acceptedFiles=[],preflightErrors=[];let total=0;for(const file of files){if(file.size>MAX_DROP_FILE_BYTES){preflightErrors.push({name:file.name,error:'20 MB file limit exceeded.'});continue;}if(total+file.size>MAX_DROP_BATCH_BYTES){preflightErrors.push({name:file.name,error:'200 MB batch limit exceeded.'});continue;}total+=file.size;acceptedFiles.push(file);}if(!acceptedFiles.length){notify(importMessage({records:[],errors:preflightErrors}));return;}const session=await bridge.vault.beginDrop(acceptedFiles.map(file=>({name:file.name,size:file.size})));const records=[],errors=[...preflightErrors,...(session.errors||[])];for(let index=0;index<(session.accepted||[]).length;index+=1){const accepted=session.accepted[index],file=acceptedFiles[accepted.sourceIndex];const bytes=new Uint8Array(await file.arrayBuffer());const result=await bridge.vault.importDropFile(session.token,index,accepted.name,bytes);if(result.record)records.push(result.record);else if(result.error)errors.push(result.error);}setVault(all=>upsert(all,records));notify(importMessage({records,errors}));}catch(error){notify(errorText(error));}};window.addEventListener('dragenter',enter);window.addEventListener('dragover',over);window.addEventListener('dragleave',leave);window.addEventListener('drop',drop);return()=>{window.removeEventListener('dragenter',enter);window.removeEventListener('dragover',over);window.removeEventListener('dragleave',leave);window.removeEventListener('drop',drop);};},[]);
- useEffect(()=>{input.current?.focus();},[selected]);useEffect(()=>()=>clearTimeout(noticeTimer.current),[]);useEffect(()=>()=>{if(preview?.objectUrl)URL.revokeObjectURL(preview.objectUrl);},[preview]);
- const update=(id,change)=>setTabs(all=>all.map(tab=>tab.id===id?{...tab,...change}:tab));
- async function search(value){if(!current)return;const query=(value??current.draft).trim();if(!query)return;if(!settings?.hasKey){setShowSettings(true);return;}const id=current.id,generation=current.generation+1;update(id,{draft:query,query,generation,loading:true,error:'',results:[]});try{const results=await bridge.search(query,id);setTabs(all=>all.map(tab=>tab.id===id&&tab.generation===generation?{...tab,results,loading:false}:tab));}catch(error){setTabs(all=>all.map(tab=>tab.id===id&&tab.generation===generation?{...tab,error:errorText(error),loading:false}:tab));}}
- async function upload(){setActive('vault');try{const result=await bridge.vault.import();setVault(all=>upsert(all,result.records));notify(importMessage(result));}catch(error){notify(errorText(error));}}
- async function webAction(item,query,copy,blob){setBusy(all=>({...all,[item.id]:copy?'Copying…':'Saving…'}));try{const payload={query,title:item.title,copy};if(blob)payload.png=new Uint8Array(await blob.arrayBuffer());else payload.url=item.url;const result=await bridge.save(payload);setVault(all=>upsert(all,[result.record]));notify(result.warning||(copy?'Copied · Added to Vault':'Exported to Downloads · Added to Vault'));}catch(error){notify(errorText(error));}finally{setBusy(all=>({...all,[item.id]:null}));}}
- async function vaultAction(kind,item){setBusy(all=>({...all,[item.id]:kind==='copy'?'Copying…':'Working…'}));try{if(kind==='copy'){await bridge.vault.copy(item.id);notify('Copied from Vault');}if(kind==='export'){await bridge.vault.export(item.id);notify('Exported to Downloads');}if(kind==='reveal')await bridge.vault.reveal(item.id);}catch(error){notify(errorText(error));}finally{setBusy(all=>({...all,[item.id]:null}));}}
- async function cutout(item,query,fromVault){setBusy(all=>({...all,[item.id]:'Preparing model…'}));try{const bytes=fromVault?await bridge.vault.bytes(item.id):await bridge.imageBytes(item.url);const blob=await removeImageBackground(bytes,progress=>setBusy(all=>({...all,[item.id]:progress})));setPreview({item,query,blob,objectUrl:URL.createObjectURL(blob),fromVault});}catch(error){notify(errorText(error));}finally{setBusy(all=>({...all,[item.id]:null}));}}
- async function removeVaultItem(){if(!deleteItem)return;const item=deleteItem;setDeleteItem(null);try{await bridge.vault.delete(item.id);setVault(all=>all.filter(record=>record.id!==item.id));notify('Removed from Vault');}catch(error){notify(errorText(error));}}
- const visible=isVault?vault.filter(record=>recordSearchText(record).includes(filter.trim().toLowerCase())):current?.results||[];
- function card(item){const query=isVault?(item.sources?.[0]?.query||item.title):current.query;const imageSource=item.preview||item.thumbnail;return <article className="image-card" key={item.id}><button className="image-open" aria-label={`Preview ${item.title}`} onClick={()=>setPreview({item,query,fromVault:isVault})}>{imageSource?<img src={imageSource} alt={item.title} loading="lazy" onError={event=>{event.currentTarget.style.opacity='.15';}}/>:<Image size={40}/>}</button><div className="card-shade"/><div className="card-info"><span>{item.title}</span><small>{isVault?(item.originalFilename||item.origins?.join(' · ')||'Vault'):item.source||'Google Images'}</small></div><div className="card-actions">{isVault?<><button disabled={!!busy[item.id]} aria-label={`Copy ${item.title}`} title="Copy" onClick={()=>vaultAction('copy',item)}><Copy size={15}/></button><button disabled={!!busy[item.id]} aria-label={`Export ${item.title}`} title="Export to Downloads" onClick={()=>vaultAction('export',item)}><Download size={15}/></button><button disabled={!!busy[item.id]} aria-label={`Reveal ${item.title}`} title="Reveal managed file" onClick={()=>vaultAction('reveal',item)}><FolderOpen size={15}/></button><button disabled={!!busy[item.id]} aria-label={`Remove background ${item.title}`} title="Remove background" onClick={()=>cutout(item,query,true)}><Scissors size={15}/></button><button disabled={!!busy[item.id]} aria-label={`Delete ${item.title}`} title="Delete" onClick={()=>setDeleteItem(item)}><Trash2 size={15}/></button></>:<><button disabled={!!busy[item.id]} aria-label={`Copy ${item.title}`} title="Copy & add to Vault" onClick={()=>webAction(item,query,true)}><Copy size={15}/></button><button disabled={!!busy[item.id]} aria-label={`Save ${item.title}`} title="Save to Downloads & Vault" onClick={()=>webAction(item,query,false)}><Download size={15}/></button><button disabled={!!busy[item.id]} aria-label={`Remove background ${item.title}`} title="Remove background" onClick={()=>cutout(item,query,false)}><Scissors size={15}/></button></>}</div>{busy[item.id]&&<div className="card-busy"><LoaderCircle className="spin" size={18}/><span>{busy[item.id]}</span></div>}</article>;}
- return <div className="app-shell"><header className="titlebar"><div className="brand"><span className="brand-mark"><Command size={16}/></span> scout<span className="brand-dot">.</span></div><span className="titlebar-caption">A little window. Endless inspiration.</span><div className="window-actions"><button aria-label="Settings" title="Settings" onClick={()=>setShowSettings(true)}><Settings size={16}/></button><button aria-label="Hide window" title="Hide · Esc" onClick={()=>bridge?.hide()}><Minus size={18}/></button></div></header>
- <nav className="tabbar" aria-label="Search tabs"><div className="search-tabs" role="tablist">{tabs.map(tab=><div className={`tab ${selected===tab.id?'active':''}`} key={tab.id}><button role="tab" aria-selected={selected===tab.id} onClick={()=>setActive(tab.id)}>{tab.loading?<LoaderCircle size={13} className="spin"/>:<Search size={13}/>}<span>{tab.query||'New search'}</span></button><button className="tab-close" aria-label={`Close ${tab.query||'search'} tab`} onClick={()=>closeTab(tab.id)}><X size={12}/></button></div>)}</div><button className="new-tab" aria-label="New tab" title="New tab · Ctrl+T" onClick={newTab}><Plus size={16}/></button><button className={`saved-tab ${isVault?'active':''}`} role="tab" aria-selected={isVault} onClick={()=>setActive('vault')}><Bookmark size={14}/>Vault<span>{vault.length}</span></button></nav>
- <main><div className="search-row"><form className="search-form" onSubmit={event=>{event.preventDefault();if(!isVault)search();}}><Search size={22}/><input ref={input} aria-label={isVault?'Search your Vault':'Search images'} placeholder={isVault?'Search your Vault…':'Search Google Images…'} value={isVault?filter:current?.draft||''} onChange={event=>isVault?setFilter(event.target.value):update(current.id,{draft:event.target.value})}/>{!isVault&&<button className="search-submit" title="Search" type="submit"><span>Search</span><kbd>↵</kbd></button>}</form><button className="upload-button" aria-label="Upload images" onClick={upload}><Upload size={16}/><span>Upload</span></button></div>
- <div className="section-meta"><span>{isVault?'YOUR VAULT':current?.query?`RESULTS FOR “${current.query}”`:'YOUR NEXT IDEA STARTS HERE'}</span><span>{isVault?`${visible.length} images`:current?.loading?'Searching Google Images…':current?.query?`${visible.length} images`:'Google Images'}<span className="tiny-dot"/></span></div>
- {current?.error&&!isVault?<div className="empty"><Search size={30}/><h1>Search hit a snag.</h1><p>{current.error}</p><button className="primary" onClick={()=>search()}>Try again</button></div>:current?.loading&&!isVault?<div className="image-grid skeleton-grid">{Array.from({length:9},(_,index)=><div className="skeleton" key={index}/>)}</div>:visible.length?<div className="image-grid">{visible.map(card)}</div>:<div className="empty"><div className="empty-art"><div/><div/><div><Image size={30}/></div><span>✦</span></div><span className="eyebrow">{isVault?'YOUR VISUAL LIBRARY':'LESS SEARCHING. MORE MAKING.'}</span><h1>{isVault?'Your images live here.':current?.query?'Nothing here. Yet.':'Find it. Grab it. Make it.'}</h1><p>{isVault?'Upload images or save something from a search. Everything stays available offline.':current?.query?'Try a different phrase to find the right image.':'Images for your next big idea, one quick search away.\nOpen a few tabs. Follow your curiosity.'}</p>{isVault?<button className="primary vault-empty-upload" onClick={upload}><Upload size={15}/>Upload images</button>:!current?.query&&<div className="suggestions">{['Brutalist architecture','Botanical textures','Monkeys'].map(query=><button key={query} onClick={()=>search(query)}>{query}<ArrowUpRight size={13}/></button>)}</div>}{!isVault&&settings&&!settings.hasKey&&<button className="connect-key" onClick={()=>setShowSettings(true)}>Connect your SerpApi key <ArrowUpRight size={13}/></button>}</div>}
- </main><footer><span className="footer-status"><span className="status-light"/>{settings?.hasKey?'Ready when you are':'Upload works offline · Connect SerpApi to search'}</span><div><span><kbd>Ctrl T</kbd> New tab</span><span><kbd>Esc</kbd> Hide</span></div></footer>
- {dragging&&<div className="drop-target"><Upload size={38}/><strong>Drop images to add them to your Vault</strong><span>They’ll be copied into managed local storage.</span></div>}
- {notice&&<div className="toast" role="status"><Check size={16}/>{notice}<button aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={14}/></button></div>}
- {showSettings&&<SettingsPanel settings={settings} vaultPath={vaultInfo?.path||settings?.vaultPath} close={()=>setShowSettings(false)} onSave={value=>{setSettings(value);notify('Settings saved');}}/>}
- {deleteItem&&<div className="modal-backdrop" onClick={()=>setDeleteItem(null)}><section className="confirm-modal" role="dialog" aria-modal="true" aria-label={`Delete ${deleteItem.title}?`} onClick={event=>event.stopPropagation()}><h2>Delete {deleteItem.title}?</h2><p>This removes the managed image from your Vault.</p><div className="settings-footer"><button autoFocus onClick={()=>setDeleteItem(null)}>Cancel</button><button className="danger" onClick={removeVaultItem}>Delete permanently</button></div></section></div>}
- {preview&&<div className="modal-backdrop" onClick={()=>setPreview(null)}><section className="preview-modal" role="dialog" aria-modal="true" aria-label="Image preview" onClick={event=>event.stopPropagation()}><div className="modal-heading"><div><h2>{preview.blob?'Background removed':preview.item.title}</h2><p>{preview.query}{preview.blob?' · Transparent PNG':''}</p></div><button aria-label="Close preview" autoFocus onClick={()=>setPreview(null)}><X size={18}/></button></div><div className="preview-image checker">{(preview.objectUrl||preview.item.preview||preview.item.url||preview.item.thumbnail)&&<img src={preview.objectUrl||preview.item.preview||preview.item.url||preview.item.thumbnail} alt={preview.item.title}/>}</div><div className="preview-actions"><span>{preview.blob?'Copy or export to add this cutout to Vault.':'Ready whenever you are.'}</span>{preview.blob?<><button disabled={!!busy[preview.item.id]} onClick={()=>webAction(preview.item,preview.query,false,preview.blob)}><Download size={15}/>Save</button><button className="primary" disabled={!!busy[preview.item.id]} onClick={()=>webAction(preview.item,preview.query,true,preview.blob)}><Copy size={15}/>Copy image</button></>:preview.fromVault?<><button onClick={()=>vaultAction('export',preview.item)}><Download size={15}/>Export</button><button className="primary" onClick={()=>vaultAction('copy',preview.item)}><Copy size={15}/>Copy image</button></>:<><button onClick={()=>webAction(preview.item,preview.query,false)}><Download size={15}/>Save</button><button className="primary" onClick={()=>webAction(preview.item,preview.query,true)}><Copy size={15}/>Copy image</button></>}</div></section></div>}
- </div>;
+  useEffect(() => {
+    if (!bridge) {
+      notify(
+        'Open ImageScout from the desktop app to connect to image search.',
+      );
+      return;
+    }
+    Promise.all([bridge.settings(), bridge.vault.info(), bridge.vault.list()])
+      .then(([nextSettings, info, records]) => {
+        setSettings(nextSettings);
+        setVaultInfo(info);
+        setVault(records);
+        const message = migrationMessage(info?.migration);
+        if (message) notify(message);
+      })
+      .catch((error) => notify(errorText(error)));
+    return bridge.onFocus(() => input.current?.focus());
+  }, []);
+  const newTab = () => {
+    const tab = fresh();
+    setTabs((all) => [...all, tab]);
+    setActive(tab.id);
+    setTimeout(() => input.current?.focus(), 0);
+  };
+  const closeTab = (id) => {
+    const remaining = tabsRef.current.filter((tab) => tab.id !== id);
+    if (!remaining.length) remaining.push(fresh());
+    setTabs(remaining);
+    if (selected === id) setActive(remaining.at(-1).id);
+  };
+  useEffect(() => {
+    const handler = (event) => {
+      if (event.key === 'Escape') {
+        if (deleteItem) setDeleteItem(null);
+        else if (preview) setPreview(null);
+        else if (showSettings) setShowSettings(false);
+        else bridge?.hide();
+        return;
+      }
+      if (preview || showSettings || deleteItem) {
+        if (event.key === 'Tab') {
+          const nodes = [
+            ...document.querySelectorAll(
+              '[role="dialog"] button:not(:disabled),[role="dialog"] input',
+            ),
+          ];
+          const first = nodes[0],
+            last = nodes.at(-1);
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          ['t', 'w', 'l'].includes(event.key.toLowerCase())
+        )
+          event.preventDefault();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        if (event.key.toLowerCase() === 't') {
+          event.preventDefault();
+          newTab();
+        }
+        if (event.key.toLowerCase() === 'w') {
+          event.preventDefault();
+          if (!isVault) closeTab(selected);
+        }
+        if (event.key.toLowerCase() === 'l') {
+          event.preventDefault();
+          input.current?.focus();
+          input.current?.select();
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  });
+  useEffect(() => {
+    const enter = (event) => {
+      event.preventDefault();
+      dragDepth.current += 1;
+      setDragging(true);
+    };
+    const over = (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    };
+    const leave = (event) => {
+      event.preventDefault();
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (!dragDepth.current) setDragging(false);
+    };
+    const drop = async (event) => {
+      event.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      const files = [...(event.dataTransfer?.files || [])];
+      if (!files.length) return;
+      setActive('vault');
+      if (files.length > MAX_DROP_FILES) {
+        notify(`Import at most ${MAX_DROP_FILES} files at once.`);
+        return;
+      }
+      try {
+        const acceptedFiles = [],
+          preflightErrors = [];
+        let total = 0;
+        for (const file of files) {
+          if (file.size > MAX_DROP_FILE_BYTES) {
+            preflightErrors.push({
+              name: file.name,
+              error: '20 MB file limit exceeded.',
+            });
+            continue;
+          }
+          if (total + file.size > MAX_DROP_BATCH_BYTES) {
+            preflightErrors.push({
+              name: file.name,
+              error: '200 MB batch limit exceeded.',
+            });
+            continue;
+          }
+          total += file.size;
+          acceptedFiles.push(file);
+        }
+        if (!acceptedFiles.length) {
+          notify(importMessage({ records: [], errors: preflightErrors }));
+          return;
+        }
+        const session = await bridge.vault.beginDrop(
+          acceptedFiles.map((file) => ({ name: file.name, size: file.size })),
+        );
+        const records = [],
+          errors = [...preflightErrors, ...(session.errors || [])];
+        for (
+          let index = 0;
+          index < (session.accepted || []).length;
+          index += 1
+        ) {
+          const accepted = session.accepted[index],
+            file = acceptedFiles[accepted.sourceIndex];
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          const result = await bridge.vault.importDropFile(
+            session.token,
+            index,
+            accepted.name,
+            bytes,
+          );
+          if (result.record) records.push(result.record);
+          else if (result.error) errors.push(result.error);
+        }
+        setVault((all) => upsert(all, records));
+        notify(importMessage({ records, errors }));
+      } catch (error) {
+        notify(errorText(error));
+      }
+    };
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop);
+    };
+  }, []);
+  useEffect(() => {
+    input.current?.focus();
+  }, [selected]);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  useEffect(
+    () => () => {
+      if (preview?.objectUrl) URL.revokeObjectURL(preview.objectUrl);
+    },
+    [preview],
+  );
+  const update = (id, change) =>
+    setTabs((all) =>
+      all.map((tab) => (tab.id === id ? { ...tab, ...change } : tab)),
+    );
+  async function search(value) {
+    if (!current) return;
+    const query = (value ?? current.draft).trim();
+    if (!query) return;
+    if (!settings?.hasKey) {
+      setShowSettings(true);
+      return;
+    }
+    const id = current.id,
+      generation = current.generation + 1;
+    update(id, {
+      draft: query,
+      query,
+      generation,
+      loading: true,
+      error: '',
+      results: [],
+    });
+    try {
+      const results = await bridge.search(query, id);
+      setTabs((all) =>
+        all.map((tab) =>
+          tab.id === id && tab.generation === generation
+            ? { ...tab, results, loading: false }
+            : tab,
+        ),
+      );
+    } catch (error) {
+      setTabs((all) =>
+        all.map((tab) =>
+          tab.id === id && tab.generation === generation
+            ? { ...tab, error: errorText(error), loading: false }
+            : tab,
+        ),
+      );
+    }
+  }
+  async function upload() {
+    setActive('vault');
+    try {
+      const result = await bridge.vault.import();
+      setVault((all) => upsert(all, result.records));
+      notify(importMessage(result));
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
+  async function webAction(item, query, copy, blob) {
+    setBusy((all) => ({ ...all, [item.id]: copy ? 'Copying…' : 'Saving…' }));
+    try {
+      const payload = { query, title: item.title, copy };
+      if (blob) payload.png = new Uint8Array(await blob.arrayBuffer());
+      else payload.url = item.url;
+      const result = await bridge.save(payload);
+      setVault((all) => upsert(all, [result.record]));
+      notify(
+        result.warning ||
+          (copy
+            ? 'Copied · Added to Vault'
+            : 'Exported to Downloads · Added to Vault'),
+      );
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setBusy((all) => ({ ...all, [item.id]: null }));
+    }
+  }
+  async function vaultAction(kind, item) {
+    setBusy((all) => ({
+      ...all,
+      [item.id]: kind === 'copy' ? 'Copying…' : 'Working…',
+    }));
+    try {
+      if (kind === 'copy') {
+        await bridge.vault.copy(item.id);
+        notify('Copied from Vault');
+      }
+      if (kind === 'export') {
+        await bridge.vault.export(item.id);
+        notify('Exported to Downloads');
+      }
+      if (kind === 'reveal') await bridge.vault.reveal(item.id);
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setBusy((all) => ({ ...all, [item.id]: null }));
+    }
+  }
+  async function cutout(item, query, fromVault) {
+    setBusy((all) => ({ ...all, [item.id]: 'Preparing model…' }));
+    try {
+      const bytes = fromVault
+        ? await bridge.vault.bytes(item.id)
+        : await bridge.imageBytes(item.url);
+      const blob = await removeImageBackground(bytes, (progress) =>
+        setBusy((all) => ({ ...all, [item.id]: progress })),
+      );
+      setPreview({
+        item,
+        query,
+        blob,
+        objectUrl: URL.createObjectURL(blob),
+        fromVault,
+      });
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setBusy((all) => ({ ...all, [item.id]: null }));
+    }
+  }
+  async function removeVaultItem() {
+    if (!deleteItem) return;
+    const item = deleteItem;
+    setDeleteItem(null);
+    try {
+      await bridge.vault.delete(item.id);
+      setVault((all) => all.filter((record) => record.id !== item.id));
+      notify('Removed from Vault');
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
+  const visible = isVault
+    ? vault.filter((record) =>
+        recordSearchText(record).includes(filter.trim().toLowerCase()),
+      )
+    : current?.results || [];
+  function card(item) {
+    const query = isVault
+      ? item.sources?.[0]?.query || item.title
+      : current.query;
+    const imageSource = item.preview || item.thumbnail;
+    return (
+      <article className="image-card" key={item.id}>
+        <button
+          className="image-open"
+          aria-label={`Preview ${item.title}`}
+          onClick={() => setPreview({ item, query, fromVault: isVault })}
+        >
+          {imageSource ? (
+            <img
+              src={imageSource}
+              alt={item.title}
+              loading="lazy"
+              onError={(event) => {
+                event.currentTarget.style.opacity = '.15';
+              }}
+            />
+          ) : (
+            <Image size={40} />
+          )}
+        </button>
+        <div className="card-shade" />
+        <div className="card-info">
+          <span>{item.title}</span>
+          <small>
+            {isVault
+              ? item.originalFilename || item.origins?.join(' · ') || 'Vault'
+              : item.source || 'Google Images'}
+          </small>
+        </div>
+        <div className="card-actions">
+          {isVault ? (
+            <>
+              <button
+                disabled={!!busy[item.id]}
+                aria-label={`Copy ${item.title}`}
+                title="Copy"
+                onClick={() => vaultAction('copy', item)}
+              >
+                <Copy size={15} />
+              </button>
+              <button
+                disabled={!!busy[item.id]}
+                aria-label={`Export ${item.title}`}
+                title="Export to Downloads"
+                onClick={() => vaultAction('export', item)}
+              >
+                <Download size={15} />
+              </button>
+              <button
+                disabled={!!busy[item.id]}
+                aria-label={`Reveal ${item.title}`}
+                title="Reveal managed file"
+                onClick={() => vaultAction('reveal', item)}
+              >
+                <FolderOpen size={15} />
+              </button>
+              <button
+                disabled={!!busy[item.id]}
+                aria-label={`Remove background ${item.title}`}
+                title="Remove background"
+                onClick={() => cutout(item, query, true)}
+              >
+                <Scissors size={15} />
+              </button>
+              <button
+                disabled={!!busy[item.id]}
+                aria-label={`Delete ${item.title}`}
+                title="Delete"
+                onClick={() => setDeleteItem(item)}
+              >
+                <Trash2 size={15} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                disabled={!!busy[item.id]}
+                aria-label={`Copy ${item.title}`}
+                title="Copy & add to Vault"
+                onClick={() => webAction(item, query, true)}
+              >
+                <Copy size={15} />
+              </button>
+              <button
+                disabled={!!busy[item.id]}
+                aria-label={`Save ${item.title}`}
+                title="Save to Downloads & Vault"
+                onClick={() => webAction(item, query, false)}
+              >
+                <Download size={15} />
+              </button>
+              <button
+                disabled={!!busy[item.id]}
+                aria-label={`Remove background ${item.title}`}
+                title="Remove background"
+                onClick={() => cutout(item, query, false)}
+              >
+                <Scissors size={15} />
+              </button>
+            </>
+          )}
+        </div>
+        {busy[item.id] && (
+          <div className="card-busy">
+            <LoaderCircle className="spin" size={18} />
+            <span>{busy[item.id]}</span>
+          </div>
+        )}
+      </article>
+    );
+  }
+  return (
+    <div className="app-shell">
+      <header className="titlebar">
+        <div className="brand">
+          <Logo />
+          <span>ImageScout</span>
+        </div>
+        <span className="titlebar-caption">
+          A little window. Endless inspiration.
+        </span>
+        <div className="window-actions">
+          <button
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
+          <button
+            aria-label="Settings"
+            title="Settings"
+            onClick={() => setShowSettings(true)}
+          >
+            <Settings size={16} />
+          </button>
+          <button
+            aria-label="Hide window"
+            title="Hide to tray · Esc"
+            onClick={() => bridge?.hide()}
+          >
+            <Minus size={18} />
+          </button>
+          <button
+            className="window-close"
+            aria-label="Quit ImageScout"
+            title="Quit ImageScout · Alt+F4"
+            onClick={() => bridge?.quit()}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      </header>
+      <nav className="tabbar" aria-label="Search tabs">
+        <div className="search-tabs" role="tablist">
+          {tabs.map((tab) => (
+            <div
+              className={`tab ${selected === tab.id ? 'active' : ''}`}
+              key={tab.id}
+            >
+              <button
+                role="tab"
+                aria-selected={selected === tab.id}
+                onClick={() => setActive(tab.id)}
+              >
+                {tab.loading ? (
+                  <LoaderCircle size={13} className="spin" />
+                ) : (
+                  <Search size={13} />
+                )}
+                <span>{tab.query || 'New search'}</span>
+              </button>
+              <button
+                className="tab-close"
+                aria-label={`Close ${tab.query || 'search'} tab`}
+                onClick={() => closeTab(tab.id)}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          className="new-tab"
+          aria-label="New tab"
+          title="New tab · Ctrl+T"
+          onClick={newTab}
+        >
+          <Plus size={16} />
+        </button>
+        <button
+          className={`saved-tab ${isVault ? 'active' : ''}`}
+          role="tab"
+          aria-selected={isVault}
+          onClick={() => setActive('vault')}
+        >
+          <Bookmark size={14} />
+          Vault<span>{vault.length}</span>
+        </button>
+      </nav>
+      <main>
+        <div className="search-row">
+          <form
+            className="search-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!isVault) search();
+            }}
+          >
+            <Search size={22} />
+            <input
+              ref={input}
+              aria-label={isVault ? 'Search your Vault' : 'Search images'}
+              placeholder={
+                isVault ? 'Search your Vault…' : 'Search Google Images…'
+              }
+              value={isVault ? filter : current?.draft || ''}
+              onChange={(event) =>
+                isVault
+                  ? setFilter(event.target.value)
+                  : update(current.id, { draft: event.target.value })
+              }
+            />
+            {!isVault && (
+              <button className="search-submit" title="Search" type="submit">
+                <span>Search</span>
+                <kbd>↵</kbd>
+              </button>
+            )}
+          </form>
+          <button
+            className="upload-button"
+            aria-label="Upload images"
+            onClick={upload}
+          >
+            <Upload size={16} />
+            <span>Upload</span>
+          </button>
+        </div>
+        <div className="section-meta">
+          <span>
+            {isVault
+              ? 'YOUR VAULT'
+              : current?.query
+                ? `RESULTS FOR “${current.query}”`
+                : 'YOUR NEXT IDEA STARTS HERE'}
+          </span>
+          <span>
+            {isVault
+              ? `${visible.length} images`
+              : current?.loading
+                ? 'Searching Google Images…'
+                : current?.query
+                  ? `${visible.length} images`
+                  : 'Google Images'}
+            <span className="tiny-dot" />
+          </span>
+        </div>
+        {current?.error && !isVault ? (
+          <div className="empty">
+            <Search size={30} />
+            <h1>Search hit a snag.</h1>
+            <p>{current.error}</p>
+            <button className="primary" onClick={() => search()}>
+              Try again
+            </button>
+          </div>
+        ) : current?.loading && !isVault ? (
+          <div className="image-grid skeleton-grid">
+            {Array.from({ length: 9 }, (_, index) => (
+              <div className="skeleton" key={index} />
+            ))}
+          </div>
+        ) : visible.length ? (
+          <div className="image-grid">{visible.map(card)}</div>
+        ) : (
+          <div className="empty">
+            <div className="empty-art">
+              <div />
+              <div />
+              <div>
+                <Image size={30} />
+              </div>
+              <span>✦</span>
+            </div>
+            <span className="eyebrow">
+              {isVault ? 'YOUR VISUAL LIBRARY' : 'LESS SEARCHING. MORE MAKING.'}
+            </span>
+            <h1>
+              {isVault
+                ? 'Your images live here.'
+                : current?.query
+                  ? 'Nothing here. Yet.'
+                  : 'Find it. Grab it. Make it.'}
+            </h1>
+            <p>
+              {isVault
+                ? 'Upload images or save something from a search. Everything stays available offline.'
+                : current?.query
+                  ? 'Try a different phrase to find the right image.'
+                  : 'Images for your next big idea, one quick search away.\nOpen a few tabs. Follow your curiosity.'}
+            </p>
+            {isVault ? (
+              <button className="primary vault-empty-upload" onClick={upload}>
+                <Upload size={15} />
+                Upload images
+              </button>
+            ) : (
+              !current?.query && (
+                <div className="suggestions">
+                  {[
+                    'Brutalist architecture',
+                    'Botanical textures',
+                    'Monkeys',
+                  ].map((query) => (
+                    <button key={query} onClick={() => search(query)}>
+                      {query}
+                      <ArrowUpRight size={13} />
+                    </button>
+                  ))}
+                </div>
+              )
+            )}
+            {!isVault && settings && !settings.hasKey && (
+              <button
+                className="connect-key"
+                onClick={() => setShowSettings(true)}
+              >
+                Connect your SerpApi key <ArrowUpRight size={13} />
+              </button>
+            )}
+          </div>
+        )}
+      </main>
+      <footer>
+        <span className="footer-status">
+          <span className="status-light" />
+          {settings?.hasKey
+            ? 'Ready when you are'
+            : 'Upload works offline · Connect SerpApi to search'}
+        </span>
+        <div>
+          <span>
+            <kbd>Ctrl T</kbd> New tab
+          </span>
+          <span>
+            <kbd>Esc</kbd> Hide
+          </span>
+        </div>
+      </footer>
+      {dragging && (
+        <div className="drop-target">
+          <Upload size={38} />
+          <strong>Drop images to add them to your Vault</strong>
+          <span>They’ll be copied into managed local storage.</span>
+        </div>
+      )}
+      {notice && (
+        <div className="toast" role="status">
+          <Check size={16} />
+          {notice}
+          <button
+            aria-label="Dismiss notification"
+            onClick={() => setNotice('')}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+      {showSettings && (
+        <SettingsPanel
+          settings={settings}
+          vaultPath={vaultInfo?.path || settings?.vaultPath}
+          close={() => setShowSettings(false)}
+          onSave={(value) => {
+            setSettings(value);
+            notify('Settings saved');
+          }}
+        />
+      )}
+      {deleteItem && (
+        <div className="modal-backdrop" onClick={() => setDeleteItem(null)}>
+          <section
+            className="confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Delete ${deleteItem.title}?`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2>Delete {deleteItem.title}?</h2>
+            <p>This removes the managed image from your Vault.</p>
+            <div className="settings-footer">
+              <button autoFocus onClick={() => setDeleteItem(null)}>
+                Cancel
+              </button>
+              <button className="danger" onClick={removeVaultItem}>
+                Delete permanently
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {preview && (
+        <div className="modal-backdrop" onClick={() => setPreview(null)}>
+          <section
+            className="preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Image preview"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-heading">
+              <div>
+                <h2>
+                  {preview.blob ? 'Background removed' : preview.item.title}
+                </h2>
+                <p>
+                  {preview.query}
+                  {preview.blob ? ' · Transparent PNG' : ''}
+                </p>
+              </div>
+              <button
+                aria-label="Close preview"
+                autoFocus
+                onClick={() => setPreview(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="preview-image checker">
+              {(preview.objectUrl ||
+                preview.item.preview ||
+                preview.item.url ||
+                preview.item.thumbnail) && (
+                <img
+                  src={
+                    preview.objectUrl ||
+                    preview.item.preview ||
+                    preview.item.url ||
+                    preview.item.thumbnail
+                  }
+                  alt={preview.item.title}
+                />
+              )}
+            </div>
+            <div className="preview-actions">
+              <span>
+                {preview.blob
+                  ? 'Copy or export to add this cutout to Vault.'
+                  : 'Ready whenever you are.'}
+              </span>
+              {preview.blob ? (
+                <>
+                  <button
+                    disabled={!!busy[preview.item.id]}
+                    onClick={() =>
+                      webAction(
+                        preview.item,
+                        preview.query,
+                        false,
+                        preview.blob,
+                      )
+                    }
+                  >
+                    <Download size={15} />
+                    Save
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={!!busy[preview.item.id]}
+                    onClick={() =>
+                      webAction(preview.item, preview.query, true, preview.blob)
+                    }
+                  >
+                    <Copy size={15} />
+                    Copy image
+                  </button>
+                </>
+              ) : preview.fromVault ? (
+                <>
+                  <button onClick={() => vaultAction('export', preview.item)}>
+                    <Download size={15} />
+                    Export
+                  </button>
+                  <button
+                    className="primary"
+                    onClick={() => vaultAction('copy', preview.item)}
+                  >
+                    <Copy size={15} />
+                    Copy image
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() =>
+                      webAction(preview.item, preview.query, false)
+                    }
+                  >
+                    <Download size={15} />
+                    Save
+                  </button>
+                  <button
+                    className="primary"
+                    onClick={() => webAction(preview.item, preview.query, true)}
+                  >
+                    <Copy size={15} />
+                    Copy image
+                  </button>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function SettingsPanel({settings,vaultPath,close,onSave}){const [key,setKey]=useState(''),[shortcut,setShortcut]=useState(settings?.shortcut||'Alt+Space'),[error,setError]=useState(''),[saving,setSaving]=useState(false);async function submit(event){event.preventDefault();setSaving(true);setError('');try{const result=await bridge.configure({...key.trim()?{apiKey:key.trim()}:{},shortcut});setKey('');onSave(result);close();}catch(reason){setError(errorText(reason));}finally{setSaving(false);}}async function openVault(){setError('');try{await bridge.vault.openFolder();}catch(reason){setError(errorText(reason));}}return <div className="modal-backdrop" onClick={close}><section className="settings-modal" role="dialog" aria-modal="true" aria-label="Settings" onClick={event=>event.stopPropagation()}><div className="modal-heading"><div><span className="eyebrow">MAKE YOURSELF AT HOME</span><h2>Settings</h2></div><button aria-label="Close settings" onClick={close}><X size={18}/></button></div><form onSubmit={submit}><label htmlFor="api-key">SerpApi key <span className="key-badge">{settings?.hasKey?'Connected':'Not connected'}</span></label><input id="api-key" autoFocus type="password" autoComplete="off" spellCheck="false" placeholder={settings?.hasKey?'Enter a new key to replace existing':'Paste your private API key'} value={key} onChange={event=>setKey(event.target.value)}/><p>Encrypted on this computer. Searches run only when you press Enter.</p><label htmlFor="shortcut">Global shortcut</label><input id="shortcut" value={shortcut} onChange={event=>setShortcut(event.target.value)} placeholder="Alt+Space"/><p>For example: Alt+Space or Control+Alt+Space.</p>{settings?.shortcutWarning&&<p className="form-error">{settings.shortcutWarning}</p>}<label>Downloads</label><div className="path"><Download size={15}/>{settings?.downloads||'Your Downloads folder'}</div><p>Exports use numbered filenames here.</p><label>Vault location</label><div className="path"><FolderOpen size={15}/>{vaultPath||'Loading Vault location…'}</div><button type="button" className="open-vault-button" aria-label="Open Vault folder" onClick={openVault}><FolderOpen size={15}/>Open Vault folder</button><p>Uploaded and saved images are managed here and remain available offline.</p>{error&&<p className="form-error" role="alert">{error}</p>}<div className="settings-footer"><button type="button" onClick={close}>Cancel</button><button className="primary" disabled={saving} type="submit">{saving?'Saving…':'Save settings'}</button></div></form></section></div>;}
+function SettingsPanel({ settings, vaultPath, close, onSave }) {
+  const [key, setKey] = useState(''),
+    [shortcut, setShortcut] = useState(settings?.shortcut || 'Alt+Space'),
+    [error, setError] = useState(''),
+    [saving, setSaving] = useState(false);
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const result = await bridge.configure({
+        ...(key.trim() ? { apiKey: key.trim() } : {}),
+        shortcut,
+      });
+      setKey('');
+      onSave(result);
+      close();
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function openVault() {
+    setError('');
+    try {
+      await bridge.vault.openFolder();
+    } catch (reason) {
+      setError(errorText(reason));
+    }
+  }
+  return (
+    <div className="modal-backdrop" onClick={close}>
+      <section
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-heading">
+          <div>
+            <span className="eyebrow">MAKE YOURSELF AT HOME</span>
+            <h2>Settings</h2>
+          </div>
+          <button aria-label="Close settings" onClick={close}>
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={submit}>
+          <label htmlFor="api-key">
+            SerpApi key{' '}
+            <span className="key-badge">
+              {settings?.hasKey ? 'Connected' : 'Not connected'}
+            </span>
+          </label>
+          <input
+            id="api-key"
+            autoFocus
+            type="password"
+            autoComplete="off"
+            spellCheck="false"
+            placeholder={
+              settings?.hasKey
+                ? 'Enter a new key to replace existing'
+                : 'Paste your private API key'
+            }
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+          />
+          <p>
+            Encrypted on this computer. Searches run only when you press Enter.
+          </p>
+          <label htmlFor="shortcut">Global shortcut</label>
+          <input
+            id="shortcut"
+            value={shortcut}
+            onChange={(event) => setShortcut(event.target.value)}
+            placeholder="Alt+Space"
+          />
+          <p>For example: Alt+Space or Control+Alt+Space.</p>
+          {settings?.shortcutWarning && (
+            <p className="form-error">{settings.shortcutWarning}</p>
+          )}
+          <label>Downloads</label>
+          <div className="path">
+            <Download size={15} />
+            {settings?.downloads || 'Your Downloads folder'}
+          </div>
+          <p>Exports use numbered filenames here.</p>
+          <label>Vault location</label>
+          <div className="path">
+            <FolderOpen size={15} />
+            {vaultPath || 'Loading Vault location…'}
+          </div>
+          <button
+            type="button"
+            className="open-vault-button"
+            aria-label="Open Vault folder"
+            onClick={openVault}
+          >
+            <FolderOpen size={15} />
+            Open Vault folder
+          </button>
+          <p>
+            Uploaded and saved images are managed here and remain available
+            offline.
+          </p>
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="settings-footer">
+            <button type="button" onClick={close}>
+              Cancel
+            </button>
+            <button className="primary" disabled={saving} type="submit">
+              {saving ? 'Saving…' : 'Save settings'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}

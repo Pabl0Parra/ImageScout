@@ -1,6 +1,6 @@
 {
   "name": "image-scout",
-  "productName": "Image Scout",
+  "productName": "ImageScout",
   "version": "0.1.0",
   "description": "A fast desktop image search launcher",
   "author": "Image Scout",
@@ -8,7 +8,8 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
+    "build": "node scripts/third-party-notices.cjs && vite build",
+    "icons": "node scripts/make-icon.cjs",
     "start": "npm run build && electron .",
     "test": "node --test tests/*.test.cjs",
     "test:ui": "playwright test",
@@ -29,11 +30,12 @@
   },
   "build": {
     "appId": "com.imagescout.desktop",
-    "productName": "Image Scout",
+    "productName": "ImageScout",
     "directories": {"output": "release"},
-    "files": ["dist/**/*", "electron/**/*", "resources/**/*", "package.json", "LICENSE"],
+    "files": ["dist/**/*", "electron/**/*", "resources/**/*", "package.json", "LICENSE", "!node_modules/**/*"],
+    "electronLanguages": ["en-US"],
     "asar": true,
-    "win": {"target": "portable", "icon": "resources/icon.ico", "signAndEditExecutable": false},
-    "portable": {"artifactName": "Image-Scout-${version}.exe"}
+    "win": {"target": "portable", "icon": "resources/icon.ico", "signAndEditExecutable": true, "signExecutable": false},
+    "portable": {"artifactName": "ImageScout-${version}.exe"}
   }
 }
